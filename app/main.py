@@ -87,8 +87,6 @@ async def upload_pdf(file: UploadFile = File(...)) -> UploadResponse:
         raise HTTPException(status_code=400, detail="Empty file")
 
     pages = load_pdf(file_bytes)
-    print(f"Extracted text from {len(pages)} pages")
-    print(pages)
     if not pages:
         raise HTTPException(
             status_code=400,
@@ -96,23 +94,10 @@ async def upload_pdf(file: UploadFile = File(...)) -> UploadResponse:
         )
 
     chunks = chunk_pages(pages)
-    print(f"Split into {len(chunks)} chunks")
-    print(chunks)
-
-    for chunk in chunks:
-        print("=" * 80)
-        print(f"Chunk ID : {chunk.chunk_id}")
-        print(f"Page     : {chunk.page}")
-        print("Text:")
-        print(chunk.text)
-        print()
-
     if not chunks:
         raise HTTPException(status_code=400, detail="No chunks produced")
 
     vectors = embed_texts([c.text for c in chunks])
-    print(f"Embedded chunks into vectors with shape {vectors.shape}")
-    print(vectors)
 
     # Replace any previous index — v1 is single-doc.
     store.reset()
