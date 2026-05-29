@@ -12,6 +12,7 @@ Minimal RAG (Retrieval-Augmented Generation) service: upload a PDF via API, ask 
 uv sync                              # install deps into .venv
 cp .env.example .env                  # then set your API key
 uv run uvicorn app.main:app --reload  # start dev server on :8000
+uv run streamlit run streamlit_app.py # start Streamlit UI on :8501
 uv add <package>                      # add a dependency
 ```
 
@@ -21,7 +22,7 @@ No test suite or linter configured yet. Dev deps group in `pyproject.toml` is em
 
 Request flow: **FastAPI endpoint → PDF extraction → chunking → embedding → FAISS index → retrieval → LLM generation → response**
 
-Four modules in `app/`:
+Five modules in `app/`:
 
 - **`main.py`** — FastAPI app with three endpoints (`/health`, `/upload`, `/query`). Loads `.env` at import time before other app modules. Owns the system prompt and user-prompt formatting. Orchestrates the full pipeline.
 - **`pdf_loader.py`** — Extracts text per page from PDF bytes via `pypdf`. Returns `List[Tuple[str, page_number]]`. Writes to `/tmp` for pypdf compatibility.

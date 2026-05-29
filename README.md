@@ -3,8 +3,14 @@
 A minimal Retrieval-Augmented Generation (RAG) service. Upload a PDF, ask
 questions, get answers grounded in the document with cited source chunks.
 
-> Status: Day 1 — core pipeline working. Day 2 will add polish, error handling,
-> and a stretch evaluation set.
+## How it works
+
+```
+PDF ─► extract text (pypdf) ─► chunk (500 char, 50 overlap) ─► embed (MiniLM-L6-v2)
+                                                                        │
+                                                                        ▼
+question ─► embed ─► FAISS top-k search ─► build prompt with chunks ─► LLM ─► answer + sources
+```
 
 ## Stack
 
@@ -22,7 +28,7 @@ Requires [`uv`](https://docs.astral.sh/uv/) (install: `curl -LsSf https://astral
 
 ```bash
 uv sync                            # creates .venv and installs deps from pyproject.toml
-cp .env.example .env               # then edit .env and set your API key
+cp .env.example .env               # then edit .env — see env vars below
 uv run uvicorn app.main:app --reload
 ```
 
@@ -31,6 +37,18 @@ Open http://localhost:8000/docs and:
 2. Use **POST /query** with `{"question": "...", "top_k": 3}`
 
 > Adding a dependency later: `uv add <package>`. Running any script: `uv run <cmd>`.
+
+### Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `LLM_PROVIDER` | Yes | `groq`, `openai`, or `anthropic` |
+| `GROQ_API_KEY` | If provider = groq | API key from [Groq console](https://console.groq.com) |
+| `OPENAI_API_KEY` | If provider = openai | API key from OpenAI |
+| `ANTHROPIC_API_KEY` | If provider = anthropic | API key from Anthropic |
+| `GROQ_MODEL` | No | Defaults to `llama-3.3-70b-versatile` |
+| `OPENAI_MODEL` | No | Defaults to `gpt-4o-mini` |
+| `ANTHROPIC_MODEL` | No | Defaults to `claude-haiku-4-5-20251001` |
 
 ## API
 
@@ -60,10 +78,36 @@ this keeps the LLM from hallucinating citations.
 implementations behind `LLM_PROVIDER=groq|openai|anthropic`. No streaming in
 v1 (streaming is where SDKs diverge sharply).
 
-## Known limitations (and what I'd do next)
+## Example
+
+**Request:**
+```json
+POST /query
+{"question": "What is the list price of the Magpie-7?", "top_k": 3}
+```
+
+**Response:**
+```json
+{
+  "answer": "The list price of the Magpie-7 is €68,400 per unit.",
+  "sources": [
+    {"chunk_id": 4, "text": "...", "page": 2, "score": 0.7542}
+  ]
+}
+```
+
+## Known limitations
 
 - Scanned PDFs aren't OCR'd
 - One PDF at a time (re-uploading replaces the index)
 - No persistence — index is in-memory
-- No retrieval evaluation set yet *(Day 2 stretch)*
 - No conversation history (each query is independent)
+- Pure semantic search — keyword-heavy queries (e.g. "CEO", "MTBF") can miss exact matches
+
+## What I'd add next
+
+- Hybrid retrieval (BM25 + vector) to catch keyword matches
+- Reranker (e.g. cross-encoder) for better precision
+- Retrieval evaluation set to measure accuracy
+- Streaming responses
+- Conversation memory
