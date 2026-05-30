@@ -3,6 +3,8 @@
 A minimal Retrieval-Augmented Generation (RAG) service. Upload a PDF, ask
 questions, get answers grounded in the document with cited source chunks.
 
+Read the full write-up: [I built a RAG pipeline from scratch — no LangChain, just FastAPI + FAISS](https://dev.to/santanu_mohanta_29/i-built-a-rag-pipeline-from-scratch-no-langchain-just-fastapi-faiss-28ke)
+
 ## How it works
 
 ```
