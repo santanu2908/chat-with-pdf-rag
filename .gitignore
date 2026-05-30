@@ -6,6 +6,7 @@ venv/
 .pytest_cache/
 .DS_Store
 data/*.pdf
+!data/sample_test_file.pdf
 !data/.gitkeep
 *.faiss
 
