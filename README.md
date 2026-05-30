@@ -33,7 +33,7 @@ uv run uvicorn app.main:app --reload
 ```
 
 Open http://localhost:8000/docs and:
-1. Use **POST /upload** to send a PDF
+1. Use **POST /upload** to send a PDF (a sample is included at `data/sample_test_file.pdf`)
 2. Use **POST /query** with `{"question": "...", "top_k": 3}`
 
 > Adding a dependency later: `uv add <package>`. Running any script: `uv run <cmd>`.
@@ -95,6 +95,63 @@ POST /query
   ]
 }
 ```
+
+## Sample Q&A results
+
+Tested against the included `data/sample_test_file.pdf` — a fictional 5-page company/product document. Results are grouped by difficulty.
+
+### Single-hop (direct lookup)
+
+| Question | Expected answer | Result |
+|---|---|---|
+| What is the list price of the Magpie-7? | €68,400 per unit (p2) | Correct |
+| What is the IP rating of the Magpie-7? | IP54 (p2) | Correct |
+| When was the Magpie-7 released? | 14 September 2025 (p2, p5) | Correct |
+| What's the response SLA on the Enterprise tier? | 1 hour, 24/7 (p3) | Correct |
+| Who is the CEO of Zentara Robotics? | Iris Kallas (p1) | **Failed** |
+
+### Specific numbers (hallucination check)
+
+| Question | Expected answer | Result |
+|---|---|---|
+| How long does it take to charge the Magpie-7 from 0 to 80%? | 42 minutes (p2) | Correct |
+| What's the maximum payload per arm? | 22 kg / 40 kg total (p2) | Correct |
+| What's the MTBF of the Magpie-7? | 4,200 hours (p5) | Correct |
+| How many employees does Zentara have? | 287 as of 1 March 2026 (p1) | **Failed** |
+
+### Tables
+
+| Question | Expected answer | Result |
+|---|---|---|
+| What's included in the Standard tier? | €2,150/month, 4-hour SLA, 750k picks/month (p3) | Correct |
+| List all company history milestones from 2020 onwards | 2020 Series A, 2022 Voorhuis deployment, 2024 Series B + Kraków, 2025 Magpie-7 launch + 1M picks, 2026 Munich office (p5) | Correct |
+
+### Multi-hop / synthesis
+
+| Question | Expected answer | Result |
+|---|---|---|
+| If I want 1-hour SLA support, what will it cost per month? | €4,800/month — Enterprise tier (p3) | Correct |
+| Which languages will the voice interface support after the June 2026 update? | 7 total: EN, DE, ET, PL, JA + ES and FR (p4) | Correct |
+| What happens if I want to cancel my subscription early? | 60 days' notice; early termination fee = 2 months of contracted rate (p3) | Correct |
+
+### Negative tests (should say "not in document")
+
+| Question | Expected answer | Result |
+|---|---|---|
+| Who is Zentara's Chief Financial Officer? | Not stated — only CEO, CTO, and Head of People are named | Correct |
+| Does the Magpie-7 support Mandarin? | Not supported and not on the roadmap | Correct |
+| What's Zentara's stock ticker? | Not in the document (company appears private) | Correct |
+
+### Tricky retrieval (info spread across pages)
+
+| Question | Expected answer | Result |
+|---|---|---|
+| What forms or certifications do operators need? | Zentara Safety Certification (4-hr course), Form ZR-INSP-22, ISO 10218-2, ISO/TS 15066 (p4) | Correct |
+| Compare the Starter and Enterprise tiers | Starter: €1,200/mo, next-biz-day SLA, 200k picks. Enterprise: €4,800/mo, 1-hr 24/7 SLA, unlimited picks (p3) | Correct |
+
+### Why the two failures happened
+
+Both failed questions ("Who is the CEO?" and "How many employees?") target page 1's dense "Company snapshot" table, which packs 8+ facts into one chunk. The embedding becomes a muddy average of all those topics, so it doesn't rank highly for any single specific query. This is the classic weakness of pure semantic search — a keyword search (BM25) would find "CEO" instantly. **Fix:** hybrid retrieval (BM25 + vector search).
 
 ## Known limitations
 
