@@ -11,7 +11,7 @@ Read the full write-up: [I built a RAG pipeline from scratch — no LangChain, j
 PDF ─► extract text (pypdf) ─► chunk (500 char, 50 overlap) ─► embed (MiniLM-L6-v2)
                                                                         │
                                                                         ▼
-question ─► embed ─► FAISS top-k search ─► build prompt with chunks ─► LLM ─► answer + sources
+question ─► embed ─► FAISS + BM25 hybrid search (RRF) ─► build prompt with chunks ─► LLM ─► answer + sources
 ```
 
 ## Stack
@@ -21,7 +21,7 @@ question ─► embed ─► FAISS top-k search ─► build prompt with chunks 
 | API | FastAPI | Type-safe, async, auto Swagger UI |
 | PDF | pypdf | Pure Python, no system deps |
 | Embeddings | sentence-transformers (`all-MiniLM-L6-v2`) | Free, local, 384-dim, CPU-friendly |
-| Vector store | FAISS (`IndexFlatIP`) | In-memory exact search, no external DB |
+| Vector store | FAISS (`IndexFlatIP`) + BM25 (`rank-bm25`) | Hybrid retrieval with Reciprocal Rank Fusion |
 | LLM | Groq / OpenAI / Anthropic | Swappable via `LLM_PROVIDER` env var |
 
 ## Quickstart
@@ -68,8 +68,9 @@ for v1 simplicity; production would use a tokenizer.
 `IndexFlatIP` (inner product) as cosine similarity. Tradeoff vs OpenAI
 embeddings: lower quality but zero API cost and works offline.
 
-**Retrieval.** Top-k semantic search only. No reranker, no hybrid (BM25 +
-dense), no query rewriting. Would add a reranker first if accuracy matters.
+**Retrieval.** Hybrid search combining FAISS (dense/semantic) and BM25
+(sparse/keyword), fused with Reciprocal Rank Fusion (RRF, k=60). This
+catches exact keyword matches (e.g. "CEO") that pure vector search misses.
 
 **Grounding.** System prompt instructs the model to answer only from context
 and explicitly say "I couldn't find that in the document." otherwise.
@@ -110,7 +111,7 @@ Tested against the included `data/sample_test_file.pdf` — a fictional 5-page c
 | What is the IP rating of the Magpie-7? | IP54 (p2) | Correct |
 | When was the Magpie-7 released? | 14 September 2025 (p2, p5) | Correct |
 | What's the response SLA on the Enterprise tier? | 1 hour, 24/7 (p3) | Correct |
-| Who is the CEO of Zentara Robotics? | Iris Kallas (p1) | **Failed** |
+| Who is the CEO of Zentara Robotics? | Iris Kallas (p1) | Correct (fixed in v2 with hybrid retrieval) |
 
 ### Specific numbers (hallucination check)
 
@@ -119,7 +120,7 @@ Tested against the included `data/sample_test_file.pdf` — a fictional 5-page c
 | How long does it take to charge the Magpie-7 from 0 to 80%? | 42 minutes (p2) | Correct |
 | What's the maximum payload per arm? | 22 kg / 40 kg total (p2) | Correct |
 | What's the MTBF of the Magpie-7? | 4,200 hours (p5) | Correct |
-| How many employees does Zentara have? | 287 as of 1 March 2026 (p1) | **Failed** |
+| How many employees does Zentara have? | 287 as of 1 March 2026 (p1) | Correct with top_k=5 (fixed in v2 with hybrid retrieval) |
 
 ### Tables
 
@@ -151,9 +152,9 @@ Tested against the included `data/sample_test_file.pdf` — a fictional 5-page c
 | What forms or certifications do operators need? | Zentara Safety Certification (4-hr course), Form ZR-INSP-22, ISO 10218-2, ISO/TS 15066 (p4) | Correct |
 | Compare the Starter and Enterprise tiers | Starter: €1,200/mo, next-biz-day SLA, 200k picks. Enterprise: €4,800/mo, 1-hr 24/7 SLA, unlimited picks (p3) | Correct |
 
-### Why the two failures happened
+### v1 → v2: hybrid retrieval fixed the failures
 
-Both failed questions ("Who is the CEO?" and "How many employees?") target page 1's dense "Company snapshot" table, which packs 8+ facts into one chunk. The embedding becomes a muddy average of all those topics, so it doesn't rank highly for any single specific query. This is the classic weakness of pure semantic search — a keyword search (BM25) would find "CEO" instantly. **Fix:** hybrid retrieval (BM25 + vector search).
+In v1 (pure FAISS), "Who is the CEO?" and "How many employees?" both failed because page 1's dense "Company snapshot" table produced muddy embeddings. In v2, BM25 catches the exact keyword matches and RRF fuses them with FAISS results. The CEO question now passes at default `top_k=3`. The employee count question passes at `top_k=5` — the chunk still ranks lower due to fact density, but hybrid retrieval brings it within reach.
 
 ## Known limitations
 
@@ -161,11 +162,11 @@ Both failed questions ("Who is the CEO?" and "How many employees?") target page 
 - One PDF at a time (re-uploading replaces the index)
 - No persistence — index is in-memory
 - No conversation history (each query is independent)
-- Pure semantic search — keyword-heavy queries (e.g. "CEO", "MTBF") can miss exact matches
+- Dense fact-packed chunks can still rank low even with hybrid retrieval (may need higher top_k)
 
 ## What I'd add next
 
-- Hybrid retrieval (BM25 + vector) to catch keyword matches
+- ~~Hybrid retrieval (BM25 + vector) to catch keyword matches~~ ✓ Added in v2
 - Reranker (e.g. cross-encoder) for better precision
 - Retrieval evaluation set to measure accuracy
 - Streaming responses

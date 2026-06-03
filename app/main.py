@@ -115,7 +115,7 @@ def query(req: QueryRequest) -> QueryResponse:
         )
 
     query_vec = embed_texts([req.question])[0]
-    retrieved = store.search(query_vec, top_k=req.top_k)
+    retrieved = store.search(query_vec, top_k=req.top_k, query_text=req.question)
 
     if not retrieved:
         return QueryResponse(
