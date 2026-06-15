@@ -1,0 +1,154 @@
+[
+  {
+    "id": 1,
+    "question": "Who is the CEO of Zentara Robotics?",
+    "expected_keywords": ["Iris Kallas"],
+    "negative": false,
+    "top_k": 3,
+    "category": "single-hop"
+  },
+  {
+    "id": 2,
+    "question": "What is the list price of the Magpie-7?",
+    "expected_keywords": ["68,400"],
+    "negative": false,
+    "top_k": 3,
+    "category": "single-hop"
+  },
+  {
+    "id": 3,
+    "question": "What is the IP rating of the Magpie-7?",
+    "expected_keywords": ["IP54"],
+    "negative": false,
+    "top_k": 3,
+    "category": "single-hop"
+  },
+  {
+    "id": 4,
+    "question": "When was the Magpie-7 released?",
+    "expected_keywords": ["14 September 2025"],
+    "negative": false,
+    "top_k": 3,
+    "category": "single-hop"
+  },
+  {
+    "id": 5,
+    "question": "What's the response SLA on the Enterprise tier?",
+    "expected_keywords": ["1 hour"],
+    "negative": false,
+    "top_k": 3,
+    "category": "single-hop"
+  },
+  {
+    "id": 6,
+    "question": "How long does it take to charge the Magpie-7 from 0 to 80%?",
+    "expected_keywords": ["42"],
+    "negative": false,
+    "top_k": 3,
+    "category": "specific-numbers"
+  },
+  {
+    "id": 7,
+    "question": "What's the maximum payload per arm?",
+    "expected_keywords": ["22"],
+    "negative": false,
+    "top_k": 3,
+    "category": "specific-numbers"
+  },
+  {
+    "id": 8,
+    "question": "How many employees does Zentara have?",
+    "expected_keywords": ["287"],
+    "negative": false,
+    "top_k": 5,
+    "category": "specific-numbers"
+  },
+  {
+    "id": 9,
+    "question": "What's the MTBF of the Magpie-7?",
+    "expected_keywords": ["4,200"],
+    "negative": false,
+    "top_k": 3,
+    "category": "specific-numbers"
+  },
+  {
+    "id": 10,
+    "question": "What's included in the Standard tier?",
+    "expected_keywords": ["2,150", "4-hour", "750"],
+    "negative": false,
+    "top_k": 3,
+    "category": "tables"
+  },
+  {
+    "id": 11,
+    "question": "List all the company history milestones from 2020 onwards.",
+    "expected_keywords": ["2020", "2022", "2024", "2025"],
+    "negative": false,
+    "top_k": 3,
+    "category": "tables"
+  },
+  {
+    "id": 12,
+    "question": "If I want 1-hour SLA support, what will it cost me per month?",
+    "expected_keywords": ["4,800"],
+    "negative": false,
+    "top_k": 3,
+    "category": "multi-hop"
+  },
+  {
+    "id": 13,
+    "question": "Which languages will the voice interface support after the June 2026 update?",
+    "expected_keywords": ["Spanish", "French"],
+    "negative": false,
+    "top_k": 3,
+    "category": "multi-hop"
+  },
+  {
+    "id": 14,
+    "question": "What happens if I want to cancel my subscription early?",
+    "expected_keywords": ["60 day", "two month"],
+    "negative": false,
+    "top_k": 3,
+    "category": "multi-hop"
+  },
+  {
+    "id": 15,
+    "question": "Who is Zentara's Chief Financial Officer?",
+    "expected_keywords": ["couldn't find", "not stated", "not mentioned", "not in the document", "not specified", "does not"],
+    "negative": true,
+    "top_k": 3,
+    "category": "negative"
+  },
+  {
+    "id": 16,
+    "question": "Does the Magpie-7 support Mandarin?",
+    "expected_keywords": ["couldn't find", "not supported", "not mentioned", "not in the document", "does not", "no mention"],
+    "negative": true,
+    "top_k": 3,
+    "category": "negative"
+  },
+  {
+    "id": 17,
+    "question": "What's Zentara's stock ticker?",
+    "expected_keywords": ["couldn't find", "not stated", "not mentioned", "not in the document", "not specified", "does not"],
+    "negative": true,
+    "top_k": 3,
+    "category": "negative"
+  },
+  {
+    "id": 18,
+    "question": "What forms or certifications do operators need to know about?",
+    "expected_keywords": ["ZR-INSP-22", "Safety Certification"],
+    "negative": false,
+    "top_k": 5,
+    "category": "tricky-retrieval"
+  },
+  {
+    "id": 19,
+    "question": "Compare the Starter and Enterprise tiers.",
+    "expected_keywords": ["1,200", "4,800"],
+    "negative": false,
+    "top_k": 3,
+    "category": "tricky-retrieval"
+  }
+]
