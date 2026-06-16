@@ -11,7 +11,7 @@ Read the full write-up: [I built a RAG pipeline from scratch — no LangChain, j
 PDF ─► extract text (pypdf) ─► chunk (500 char, 50 overlap) ─► embed (MiniLM-L6-v2)
                                                                         │
                                                                         ▼
-question ─► embed ─► FAISS + BM25 hybrid search (RRF) ─► build prompt with chunks ─► LLM ─► answer + sources
+question ─► embed ─► FAISS + BM25 hybrid search (RRF) ─► cross-encoder rerank ─► LLM ─► answer + sources
 ```
 
 ## Stack
@@ -22,6 +22,7 @@ question ─► embed ─► FAISS + BM25 hybrid search (RRF) ─► build promp
 | PDF | pypdf | Pure Python, no system deps |
 | Embeddings | sentence-transformers (`all-MiniLM-L6-v2`) | Free, local, 384-dim, CPU-friendly |
 | Vector store | FAISS (`IndexFlatIP`) + BM25 (`rank-bm25`) | Hybrid retrieval with Reciprocal Rank Fusion |
+| Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Second-stage precision boost, CPU-friendly |
 | LLM | Groq / OpenAI / Anthropic | Swappable via `LLM_PROVIDER` env var |
 
 ## Quickstart
@@ -71,6 +72,14 @@ embeddings: lower quality but zero API cost and works offline.
 **Retrieval.** Hybrid search combining FAISS (dense/semantic) and BM25
 (sparse/keyword), fused with Reciprocal Rank Fusion (RRF, k=60). This
 catches exact keyword matches (e.g. "CEO") that pure vector search misses.
+
+**Reranking.** A cross-encoder (`ms-marco-MiniLM-L-6-v2`) reranks candidates
+after hybrid search. Cross-encoders score (query, passage) pairs jointly —
+more accurate than bi-encoders but too slow for first-stage retrieval. We
+use a guaranteed-slots strategy: the top first-stage results are preserved
+and the cross-encoder fills the last slot from the broader candidate pool.
+This prevents the CE from burying dense fact-table chunks that matched well
+on keywords but don't resemble natural prose passages.
 
 **Grounding.** System prompt instructs the model to answer only from context
 and explicitly say "I couldn't find that in the document." otherwise.
@@ -167,7 +176,7 @@ In v1 (pure FAISS), "Who is the CEO?" and "How many employees?" both failed beca
 ## What I'd add next
 
 - ~~Hybrid retrieval (BM25 + vector) to catch keyword matches~~ ✓ Added in v2
-- Reranker (e.g. cross-encoder) for better precision
-- Retrieval evaluation set to measure accuracy
+- ~~Reranker (e.g. cross-encoder) for better precision~~ ✓ Added in v3
+- ~~Retrieval evaluation set to measure accuracy~~ ✓ Added in v3 (19 questions, 6 categories)
 - Streaming responses
 - Conversation memory

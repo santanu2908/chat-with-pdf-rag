@@ -16,6 +16,7 @@ from app.pdf_loader import load_pdf
 from app.rag import chunk_pages, embed_texts
 from app.store import store
 from app.llm import get_llm_client
+from app.reranker import rerank
 
 app = FastAPI(
     title="Chat with PDF (RAG Lite)",
@@ -115,7 +116,10 @@ def query(req: QueryRequest) -> QueryResponse:
         )
 
     query_vec = embed_texts([req.question])[0]
-    retrieved = store.search(query_vec, top_k=req.top_k, query_text=req.question)
+    # Over-fetch candidates for reranking, then keep top_k
+    fetch_k = req.top_k * 2
+    candidates = store.search(query_vec, top_k=fetch_k, query_text=req.question)
+    retrieved = rerank(req.question, candidates, top_k=req.top_k)
 
     if not retrieved:
         return QueryResponse(
