@@ -165,6 +165,10 @@ Tested against the included `data/sample_test_file.pdf` — a fictional 5-page c
 
 In v1 (pure FAISS), "Who is the CEO?" and "How many employees?" both failed because page 1's dense "Company snapshot" table produced muddy embeddings. In v2, BM25 catches the exact keyword matches and RRF fuses them with FAISS results. The CEO question now passes at default `top_k=3`. The employee count question passes at `top_k=5` — the chunk still ranks lower due to fact density, but hybrid retrieval brings it within reach.
 
+### v2 → v3: cross-encoder reranker (with a catch)
+
+Adding a cross-encoder (`ms-marco-MiniLM-L-6-v2`) as a second-stage reranker initially broke the same two questions — the CE was trained on natural prose (MS MARCO) and scored dense table chunks very low, burying them from the final top-k. After trying 7 approaches (score blending, RRF fusion, weighted RRF), the fix was a **guaranteed-slots strategy**: the top `top_k - 1` first-stage results are preserved, and the cross-encoder only fills the last slot from the broader candidate pool. All 19 questions pass. An automated eval harness (`tests/test_eval.py`) now catches regressions like this in seconds.
+
 ## Known limitations
 
 - Scanned PDFs aren't OCR'd
