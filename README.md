@@ -58,6 +58,7 @@ Open http://localhost:8000/docs and:
 - `GET /health` — sanity check + how many chunks are indexed
 - `POST /upload` — multipart `file` (PDF). Replaces any previous index.
 - `POST /query` — `{question, top_k}` → `{answer, sources[]}`
+- `POST /query/stream` — same input, but returns SSE events: `{"token": "..."}` per chunk, then `{"sources": [...]}`
 
 ## Design notes (the interesting bits)
 
@@ -86,9 +87,9 @@ and explicitly say "I couldn't find that in the document." otherwise.
 Sources are returned to the user separately, not formatted into the answer —
 this keeps the LLM from hallucinating citations.
 
-**LLM swap.** Single `LLMClient.generate(system, user)` interface. Three
-implementations behind `LLM_PROVIDER=groq|openai|anthropic`. No streaming in
-v1 (streaming is where SDKs diverge sharply).
+**LLM swap.** `LLMClient` exposes `generate(system, user)` (blocking) and
+`stream(system, user)` (yields text chunks). Three implementations behind
+`LLM_PROVIDER=groq|openai|anthropic`, each using its SDK's native streaming.
 
 ## Example
 
@@ -182,5 +183,5 @@ Adding a cross-encoder (`ms-marco-MiniLM-L-6-v2`) as a second-stage reranker ini
 - ~~Hybrid retrieval (BM25 + vector) to catch keyword matches~~ ✓ Added in v2
 - ~~Reranker (e.g. cross-encoder) for better precision~~ ✓ Added in v3
 - ~~Retrieval evaluation set to measure accuracy~~ ✓ Added in v3 (19 questions, 6 categories)
-- Streaming responses
+- ~~Streaming responses~~ ✓ Added in v4
 - Conversation memory

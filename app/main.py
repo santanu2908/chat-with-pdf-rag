@@ -1,12 +1,14 @@
-"""FastAPI app exposing /upload and /query.
+"""FastAPI app exposing /upload, /query, and /query/stream.
 
 Run locally:
     uvicorn app.main:app --reload
 Then open http://localhost:8000/docs for the Swagger UI.
 """
-from typing import List
+import json
+from typing import Iterator, List
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 
@@ -142,3 +144,47 @@ def query(req: QueryRequest) -> QueryResponse:
     ]
 
     return QueryResponse(answer=answer, sources=sources)
+
+
+@app.post("/query/stream")
+def query_stream(req: QueryRequest) -> StreamingResponse:
+    """Streaming version of /query. Returns SSE events:
+    - data: {"token": "..."} for each text chunk
+    - data: {"sources": [...]} as the final event
+    """
+    if store.size() == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No document indexed. POST a PDF to /upload first.",
+        )
+
+    query_vec = embed_texts([req.question])[0]
+    fetch_k = req.top_k * 2
+    candidates = store.search(query_vec, top_k=fetch_k, query_text=req.question)
+    retrieved = rerank(req.question, candidates, top_k=req.top_k)
+
+    if not retrieved:
+        def empty_stream() -> Iterator[str]:
+            yield f"data: {json.dumps({'token': 'I couldn\'t find that in the document.'})}\n\n"
+            yield f"data: {json.dumps({'sources': []})}\n\n"
+        return StreamingResponse(empty_stream(), media_type="text/event-stream")
+
+    sources = [
+        {
+            "chunk_id": r.chunk.chunk_id,
+            "text": r.chunk.text,
+            "page": r.chunk.page,
+            "score": round(r.score, 4),
+        }
+        for r in retrieved
+    ]
+
+    llm = get_llm_client()
+    user_prompt = build_user_prompt(req.question, retrieved)
+
+    def event_stream() -> Iterator[str]:
+        for token in llm.stream(system=SYSTEM_PROMPT, user=user_prompt):
+            yield f"data: {json.dumps({'token': token})}\n\n"
+        yield f"data: {json.dumps({'sources': sources})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")

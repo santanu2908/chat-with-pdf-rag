@@ -1,13 +1,15 @@
 """LLM provider abstraction.
 
-Single interface: generate(system, user) -> str.
-No streaming on v1 — streaming is where provider SDKs diverge sharply.
+Two interfaces:
+  generate(system, user) -> str          (blocking, used by /query)
+  stream(system, user)   -> Iterator     (yields text chunks, used by /query/stream)
 
 To add a new provider:
-  1. Implement LLMClient.generate
+  1. Implement LLMClient.generate and LLMClient.stream
   2. Register in get_llm_client
 """
 from abc import ABC, abstractmethod
+from typing import Iterator
 import os
 
 
@@ -15,6 +17,11 @@ class LLMClient(ABC):
     @abstractmethod
     def generate(self, system: str, user: str) -> str:
         """Single-turn generation. Returns the assistant's text reply."""
+        ...
+
+    @abstractmethod
+    def stream(self, system: str, user: str) -> Iterator[str]:
+        """Streaming generation. Yields text chunks as they arrive."""
         ...
 
 
@@ -39,6 +46,22 @@ class GroqClient(LLMClient):
         )
         return resp.choices[0].message.content or ""
 
+    def stream(self, system: str, user: str) -> Iterator[str]:
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.2,
+            max_tokens=800,
+            stream=True,
+        )
+        for chunk in resp:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
 
 class OpenAIClient(LLMClient):
     def __init__(self) -> None:
@@ -60,6 +83,22 @@ class OpenAIClient(LLMClient):
             max_tokens=800,
         )
         return resp.choices[0].message.content or ""
+
+    def stream(self, system: str, user: str) -> Iterator[str]:
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.2,
+            max_tokens=800,
+            stream=True,
+        )
+        for chunk in resp:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
 
 
 class AnthropicClient(LLMClient):
@@ -83,6 +122,17 @@ class AnthropicClient(LLMClient):
         # Anthropic returns content as a list of blocks
         parts = [block.text for block in resp.content if block.type == "text"]
         return "".join(parts)
+
+    def stream(self, system: str, user: str) -> Iterator[str]:
+        with self.client.messages.stream(
+            model=self.model,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+            temperature=0.2,
+            max_tokens=800,
+        ) as resp:
+            for text in resp.text_stream:
+                yield text
 
 
 def get_llm_client() -> LLMClient:
