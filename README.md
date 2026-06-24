@@ -57,8 +57,8 @@ Open http://localhost:8000/docs and:
 
 - `GET /health` — sanity check + how many chunks are indexed
 - `POST /upload` — multipart `file` (PDF). Replaces any previous index.
-- `POST /query` — `{question, top_k}` → `{answer, sources[]}`
-- `POST /query/stream` — same input, but returns SSE events: `{"token": "..."}` per chunk, then `{"sources": [...]}`
+- `POST /query` — `{question, top_k, session_id?}` → `{answer, sources[], session_id}`
+- `POST /query/stream` — same input, but returns SSE events: `{"token": "..."}` per chunk, then `{"sources": [...], "session_id": "..."}`
 
 ## Design notes (the interesting bits)
 
@@ -87,9 +87,16 @@ and explicitly say "I couldn't find that in the document." otherwise.
 Sources are returned to the user separately, not formatted into the answer —
 this keeps the LLM from hallucinating citations.
 
-**LLM swap.** `LLMClient` exposes `generate(system, user)` (blocking) and
-`stream(system, user)` (yields text chunks). Three implementations behind
+**LLM swap.** `LLMClient` exposes `generate(system, messages)` (blocking) and
+`stream(system, messages)` (yields text chunks). Both accept multi-turn message
+lists for conversation memory. Three implementations behind
 `LLM_PROVIDER=groq|openai|anthropic`, each using its SDK's native streaming.
+
+**Conversation memory.** An in-memory session store lets users ask follow-up
+questions that reference prior answers. Send the `session_id` from the response
+in your next request to continue the conversation. The LLM sees the last 5 turns
+of history so it can resolve references like "he", "that", "the same tier".
+Sessions clear when a new PDF is uploaded.
 
 ## Example
 
@@ -175,7 +182,7 @@ Adding a cross-encoder (`ms-marco-MiniLM-L-6-v2`) as a second-stage reranker ini
 - Scanned PDFs aren't OCR'd
 - One PDF at a time (re-uploading replaces the index)
 - No persistence — index is in-memory
-- No conversation history (each query is independent)
+- Conversation memory is in-memory only (lost on server restart)
 - Dense fact-packed chunks can still rank low even with hybrid retrieval (may need higher top_k)
 
 ## What I'd add next
@@ -184,4 +191,4 @@ Adding a cross-encoder (`ms-marco-MiniLM-L-6-v2`) as a second-stage reranker ini
 - ~~Reranker (e.g. cross-encoder) for better precision~~ ✓ Added in v3
 - ~~Retrieval evaluation set to measure accuracy~~ ✓ Added in v3 (19 questions, 6 categories)
 - ~~Streaming responses~~ ✓ Added in v4
-- Conversation memory
+- ~~Conversation memory~~ ✓ Added in v5

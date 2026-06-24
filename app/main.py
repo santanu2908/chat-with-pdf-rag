@@ -5,7 +5,8 @@ Run locally:
 Then open http://localhost:8000/docs for the Swagger UI.
 """
 import json
-from typing import Iterator, List
+import uuid
+from typing import Dict, Iterator, List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse
@@ -27,6 +28,40 @@ app = FastAPI(
 )
 
 
+# ---------- Conversation memory ----------
+
+MAX_HISTORY_TURNS = 5  # keep last N exchanges (user + assistant pairs)
+
+# session_id → list of {"role": "user"|"assistant", "content": "..."} messages
+_sessions: Dict[str, List[Dict[str, str]]] = {}
+
+
+def _get_history(session_id: Optional[str]) -> List[Dict[str, str]]:
+    """Return conversation history for a session (empty list if no session)."""
+    if session_id and session_id in _sessions:
+        return list(_sessions[session_id])
+    return []
+
+
+def _save_turn(session_id: Optional[str], user_msg: str, assistant_msg: str) -> str:
+    """Append a turn to the session and return the session_id."""
+    if not session_id:
+        session_id = uuid.uuid4().hex
+    
+    # Append the new turn to the session history, trimming to last N turns
+    # if session_id is not in _sessions, create a new empty list for it
+    history = _sessions.setdefault(session_id, [])
+    history.append({"role": "user", "content": user_msg})
+    history.append({"role": "assistant", "content": assistant_msg})
+    # Trim to last N turns (each turn = 2 messages)
+    max_messages = MAX_HISTORY_TURNS * 2
+    if len(history) > max_messages:
+        _sessions[session_id] = history[-max_messages:]
+
+    print(_sessions)  # Debug: print the current session history
+    return session_id
+
+
 # ---------- Schemas ----------
 
 class UploadResponse(BaseModel):
@@ -37,6 +72,10 @@ class UploadResponse(BaseModel):
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000)
     top_k: int = Field(default=3, ge=1, le=10)
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session ID for conversation memory. Omit to start a new session.",
+    )
 
 
 class Source(BaseModel):
@@ -49,6 +88,7 @@ class Source(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     sources: List[Source]
+    session_id: str
 
 
 # ---------- Prompt ----------
@@ -59,7 +99,8 @@ Rules:
 - Use ONLY the context below. Do not use outside knowledge.
 - If the answer is not in the context, say: "I couldn't find that in the document."
 - Be concise. 1-3 sentences unless the question requires more.
-- Do not invent page numbers or citations — the user will see source chunks separately."""
+- Do not invent page numbers or citations — the user will see source chunks separately.
+- You may receive prior conversation turns. Use them to resolve follow-up references (e.g. "it", "that", "the same tier") but still answer from the retrieved context, not from prior answers."""
 
 
 def build_user_prompt(question: str, retrieved_chunks: list) -> str:
@@ -102,8 +143,9 @@ async def upload_pdf(file: UploadFile = File(...)) -> UploadResponse:
 
     vectors = embed_texts([c.text for c in chunks])
 
-    # Replace any previous index — v1 is single-doc.
+    # Replace any previous index and clear conversation history — single-doc design.
     store.reset()
+    _sessions.clear()
     store.add(vectors, chunks)
 
     return UploadResponse(chunks_indexed=len(chunks), pages_processed=len(pages))
@@ -124,14 +166,23 @@ def query(req: QueryRequest) -> QueryResponse:
     retrieved = rerank(req.question, candidates, top_k=req.top_k)
 
     if not retrieved:
+        sid = _save_turn(req.session_id, req.question, "I couldn't find that in the document.")
         return QueryResponse(
             answer="I couldn't find that in the document.",
             sources=[],
+            session_id=sid,
         )
 
     llm = get_llm_client()
     user_prompt = build_user_prompt(req.question, retrieved)
-    answer = llm.generate(system=SYSTEM_PROMPT, user=user_prompt).strip()
+
+    # Build messages: prior history + current user prompt
+    history = _get_history(req.session_id)
+    messages = history + [{"role": "user", "content": user_prompt}]
+
+    answer = llm.generate(system=SYSTEM_PROMPT, messages=messages).strip()
+
+    sid = _save_turn(req.session_id, req.question, answer)
 
     sources = [
         Source(
@@ -143,14 +194,14 @@ def query(req: QueryRequest) -> QueryResponse:
         for r in retrieved
     ]
 
-    return QueryResponse(answer=answer, sources=sources)
+    return QueryResponse(answer=answer, sources=sources, session_id=sid)
 
 
 @app.post("/query/stream")
 def query_stream(req: QueryRequest) -> StreamingResponse:
     """Streaming version of /query. Returns SSE events:
     - data: {"token": "..."} for each text chunk
-    - data: {"sources": [...]} as the final event
+    - data: {"sources": [...], "session_id": "..."} as the final event
     """
     if store.size() == 0:
         raise HTTPException(
@@ -164,9 +215,10 @@ def query_stream(req: QueryRequest) -> StreamingResponse:
     retrieved = rerank(req.question, candidates, top_k=req.top_k)
 
     if not retrieved:
+        sid = _save_turn(req.session_id, req.question, "I couldn't find that in the document.")
         def empty_stream() -> Iterator[str]:
             yield f"data: {json.dumps({'token': 'I couldn\'t find that in the document.'})}\n\n"
-            yield f"data: {json.dumps({'sources': []})}\n\n"
+            yield f"data: {json.dumps({'sources': [], 'session_id': sid})}\n\n"
         return StreamingResponse(empty_stream(), media_type="text/event-stream")
 
     sources = [
@@ -182,9 +234,17 @@ def query_stream(req: QueryRequest) -> StreamingResponse:
     llm = get_llm_client()
     user_prompt = build_user_prompt(req.question, retrieved)
 
+    # Build messages: prior history + current user prompt
+    history = _get_history(req.session_id)
+    messages = history + [{"role": "user", "content": user_prompt}]
+
     def event_stream() -> Iterator[str]:
-        for token in llm.stream(system=SYSTEM_PROMPT, user=user_prompt):
+        tokens: list[str] = []
+        for token in llm.stream(system=SYSTEM_PROMPT, messages=messages):
+            tokens.append(token)
             yield f"data: {json.dumps({'token': token})}\n\n"
-        yield f"data: {json.dumps({'sources': sources})}\n\n"
+        answer = "".join(tokens)
+        sid = _save_turn(req.session_id, req.question, answer)
+        yield f"data: {json.dumps({'sources': sources, 'session_id': sid})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

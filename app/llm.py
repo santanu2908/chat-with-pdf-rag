@@ -1,26 +1,31 @@
 """LLM provider abstraction.
 
 Two interfaces:
-  generate(system, user) -> str          (blocking, used by /query)
-  stream(system, user)   -> Iterator     (yields text chunks, used by /query/stream)
+  generate(system, messages) -> str      (blocking, used by /query)
+  stream(system, messages)   -> Iterator (yields text chunks, used by /query/stream)
+
+messages is a list of {"role": "user"|"assistant", "content": "..."} dicts.
+For single-turn calls, pass a one-element list.
 
 To add a new provider:
   1. Implement LLMClient.generate and LLMClient.stream
   2. Register in get_llm_client
 """
 from abc import ABC, abstractmethod
-from typing import Iterator
+from typing import Iterator, List, Dict
 import os
+
+Messages = List[Dict[str, str]]
 
 
 class LLMClient(ABC):
     @abstractmethod
-    def generate(self, system: str, user: str) -> str:
-        """Single-turn generation. Returns the assistant's text reply."""
+    def generate(self, system: str, messages: Messages) -> str:
+        """Multi-turn generation. Returns the assistant's text reply."""
         ...
 
     @abstractmethod
-    def stream(self, system: str, user: str) -> Iterator[str]:
+    def stream(self, system: str, messages: Messages) -> Iterator[str]:
         """Streaming generation. Yields text chunks as they arrive."""
         ...
 
@@ -34,25 +39,22 @@ class GroqClient(LLMClient):
         self.client = Groq(api_key=api_key)
         self.model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
-    def generate(self, system: str, user: str) -> str:
+    def _build_messages(self, system: str, messages: Messages) -> list:
+        return [{"role": "system", "content": system}] + messages
+
+    def generate(self, system: str, messages: Messages) -> str:
         resp = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            messages=self._build_messages(system, messages),
             temperature=0.2,  # low — we want grounded, not creative
             max_tokens=800,
         )
         return resp.choices[0].message.content or ""
 
-    def stream(self, system: str, user: str) -> Iterator[str]:
+    def stream(self, system: str, messages: Messages) -> Iterator[str]:
         resp = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            messages=self._build_messages(system, messages),
             temperature=0.2,
             max_tokens=800,
             stream=True,
@@ -72,25 +74,22 @@ class OpenAIClient(LLMClient):
         self.client = OpenAI(api_key=api_key)
         self.model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
-    def generate(self, system: str, user: str) -> str:
+    def _build_messages(self, system: str, messages: Messages) -> list:
+        return [{"role": "system", "content": system}] + messages
+
+    def generate(self, system: str, messages: Messages) -> str:
         resp = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            messages=self._build_messages(system, messages),
             temperature=0.2,
             max_tokens=800,
         )
         return resp.choices[0].message.content or ""
 
-    def stream(self, system: str, user: str) -> Iterator[str]:
+    def stream(self, system: str, messages: Messages) -> Iterator[str]:
         resp = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
+            messages=self._build_messages(system, messages),
             temperature=0.2,
             max_tokens=800,
             stream=True,
@@ -111,11 +110,11 @@ class AnthropicClient(LLMClient):
         # Note: Anthropic system prompts are a top-level param, not a message
         self.model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
-    def generate(self, system: str, user: str) -> str:
+    def generate(self, system: str, messages: Messages) -> str:
         resp = self.client.messages.create(
             model=self.model,
             system=system,
-            messages=[{"role": "user", "content": user}],
+            messages=messages,
             temperature=0.2,
             max_tokens=800,
         )
@@ -123,11 +122,11 @@ class AnthropicClient(LLMClient):
         parts = [block.text for block in resp.content if block.type == "text"]
         return "".join(parts)
 
-    def stream(self, system: str, user: str) -> Iterator[str]:
+    def stream(self, system: str, messages: Messages) -> Iterator[str]:
         with self.client.messages.stream(
             model=self.model,
             system=system,
-            messages=[{"role": "user", "content": user}],
+            messages=messages,
             temperature=0.2,
             max_tokens=800,
         ) as resp:
